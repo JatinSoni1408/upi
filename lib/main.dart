@@ -74,8 +74,8 @@ class UpiHomePage extends StatefulWidget {
 
 class _UpiHomePageState extends State<UpiHomePage> {
   static const double _maxAmountPerQr = 100000;
-  static const int _maxQrCount = 100;
-  static const double _maxTotalAmount = _maxAmountPerQr * _maxQrCount;
+  static const int _maxQrCount = 1;
+  static const double _maxTotalAmount = _maxAmountPerQr;
 
   final TextEditingController _amountController = TextEditingController();
   List<double?> _amounts = const <double?>[null];
@@ -126,7 +126,7 @@ class _UpiHomePageState extends State<UpiHomePage> {
     return chunks;
   }
 
-  void _generateQrs() {
+  void _generateQrs({bool showErrors = true}) {
     FocusScope.of(context).unfocus();
 
     final rawValue = _amountController.text.trim().replaceAll(',', '');
@@ -139,28 +139,34 @@ class _UpiHomePageState extends State<UpiHomePage> {
     final amount = double.tryParse(rawValue);
 
     if (amount == null || !amount.isFinite || amount <= 0) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Enter a valid amount')));
+      if (showErrors) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Enter a valid amount')));
+      }
       return;
     }
 
     if (amount > _maxTotalAmount) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Amount too large. Max allowed is ${_maxTotalAmount.toStringAsFixed(2)}',
+      if (showErrors) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Amount too large. Max allowed is ${_maxTotalAmount.toStringAsFixed(2)}',
+            ),
           ),
-        ),
-      );
+        );
+      }
       return;
     }
 
     final splits = _splitAmounts(amount);
     if (splits.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to generate QR right now.')),
-      );
+      if (showErrors) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to generate QR right now.')),
+        );
+      }
       return;
     }
 
@@ -171,6 +177,7 @@ class _UpiHomePageState extends State<UpiHomePage> {
 
   Future<void> _showAmountSheet() async {
     FocusScope.of(context).unfocus();
+    bool overLimit = false;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -179,53 +186,79 @@ class _UpiHomePageState extends State<UpiHomePage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 16,
-            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom + 16,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Generate QR',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _amountController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return PopScope(
+              canPop: !overLimit,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.viewInsetsOf(sheetContext).bottom + 16,
                 ),
-                textInputAction: TextInputAction.done,
-                inputFormatters: [
-                  _IndianCurrencyInputFormatter(_formatIndianInteger),
-                ],
-                decoration: const InputDecoration(
-                  labelText: 'Amount',
-                  hintText: 'Enter amount',
-                  prefixIcon: Icon(Icons.currency_rupee),
-                  border: OutlineInputBorder(),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      controller: _amountController,
+                      autofocus: true,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      textInputAction: TextInputAction.done,
+                      inputFormatters: [
+                        _IndianCurrencyInputFormatter(_formatIndianInteger),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'Amount',
+                        hintText: 'Enter amount',
+                        prefixIcon: const Icon(Icons.currency_rupee),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () {
+                            _amountController.clear();
+                            if (overLimit) {
+                              setSheetState(() {
+                                overLimit = false;
+                              });
+                            }
+                            _generateQrs(showErrors: false);
+                          },
+                          tooltip: 'Clear amount',
+                        ),
+                        border: const OutlineInputBorder(),
+                        errorText: overLimit
+                            ? 'Amount cannot be greater than 100000.00'
+                            : null,
+                      ),
+                      onChanged: (_) {
+                        final rawValue = _amountController.text
+                            .trim()
+                            .replaceAll(',', '');
+                        final amount = double.tryParse(rawValue);
+                        final nextOverLimit =
+                            amount != null && amount > _maxTotalAmount;
+                        if (nextOverLimit != overLimit) {
+                          setSheetState(() {
+                            overLimit = nextOverLimit;
+                          });
+                        }
+                        _generateQrs(showErrors: false);
+                      },
+                      onSubmitted: (_) {
+                        _generateQrs();
+                        if (!overLimit) {
+                          Navigator.of(sheetContext).pop();
+                        }
+                      },
+                    ),
+                  ],
                 ),
-                onSubmitted: (_) {
-                  _generateQrs();
-                  Navigator.of(sheetContext).pop();
-                },
               ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () {
-                  _generateQrs();
-                  Navigator.of(sheetContext).pop();
-                },
-                icon: const Icon(Icons.qr_code_2),
-                label: const Text('Generate QR'),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -442,7 +475,7 @@ class _ScanPayStandeeCardState extends State<_ScanPayStandeeCard> {
       await Share.shareXFiles(
         <XFile>[XFile(file.path)],
         text: widget.amount == null
-            ? 'UPI ID: ${widget.upiId}\nAmount: Enter in app'
+            ? 'UPI ID: ${widget.upiId}'
             : 'UPI ID: ${widget.upiId}\nAmount: \u20B9${_formatRupees(widget.amount!)}',
       );
     } catch (_) {
@@ -490,12 +523,12 @@ class _ScanPayStandeeCardState extends State<_ScanPayStandeeCard> {
                       final cardWidth = constraints.maxWidth;
                       final cardHeight = constraints.maxHeight;
 
-                      final qrBoxSize = math
-                          .min(cardWidth * 0.74, cardHeight * 0.40)
-                          .toDouble();
-                      final qrPadding =
-                          math.max(10.0, qrBoxSize * 0.06).toDouble();
-                      final qrSize = qrBoxSize - (qrPadding * 2);
+                          final qrBoxSize = math
+                              .min(cardWidth * 0.74, cardHeight * 0.40)
+                              .toDouble();
+                          final qrPadding =
+                              math.max(10.0, qrBoxSize * 0.06).toDouble();
+                          final qrSize = qrBoxSize - (qrPadding * 2);
 
                       return Padding(
                         padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
@@ -505,158 +538,200 @@ class _ScanPayStandeeCardState extends State<_ScanPayStandeeCard> {
                               height: 64,
                               child: Row(
                                 children: [
-                                  IconButton(
-                                    onPressed: widget.onSettings,
-                                    icon: const Icon(Icons.settings),
-                                    tooltip: 'Settings',
-                                  ),
-                                  Expanded(
-                                    child: Center(
-                                      child: ColorFiltered(
-                                        colorFilter: const ColorFilter.mode(
-                                          Colors.black,
-                                          BlendMode.srcIn,
-                                        ),
-                                        child: Image.asset(
-                                          widget.shopLogoAsset,
-                                          fit: BoxFit.contain,
-                                          filterQuality: FilterQuality.high,
-                                          cacheHeight: 128,
-                                          errorBuilder:
-                                              (context, error, stackTrace) {
-                                            return const SizedBox.shrink();
-                                          },
-                                        ),
+                                  GestureDetector(
+                                    onLongPress: widget.onSettings,
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(8),
+                                      child: Icon(
+                                        Icons.settings,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 48),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              widget.merchantName,
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.headlineSmall?.copyWith(
-                                fontFamily: 'serif',
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1.0,
-                                color: onSurface,
-                                height: 1.1,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              widget.tagline,
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.8,
-                                color: onSurface.withValues(alpha: 0.75),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            SizedBox.square(
-                              dimension: qrBoxSize,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  border: Border.all(
-                                    color: const Color(0xFF303030),
-                                    width: 2,
-                                  ),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Padding(
-                                  padding: EdgeInsets.all(qrPadding),
-                                  child: QrImageView(
-                                    data: widget.qrData,
-                                    size: qrSize,
-                                    backgroundColor: Colors.white,
-                                    errorCorrectionLevel:
-                                        QrErrorCorrectLevel.H,
-                                    padding: EdgeInsets.zero,
+                                      Expanded(
+                                        child: Center(
+                                          child: ColorFiltered(
+                                            colorFilter: const ColorFilter.mode(
+                                              Colors.black,
+                                              BlendMode.srcIn,
+                                            ),
+                                            child: Image.asset(
+                                              widget.shopLogoAsset,
+                                              fit: BoxFit.contain,
+                                              filterQuality:
+                                                  FilterQuality.high,
+                                              cacheHeight: 128,
+                                              errorBuilder:
+                                                  (context, error, stackTrace) {
+                                                return const SizedBox.shrink();
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 48),
+                                    ],
                                   ),
                                 ),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              'SCAN & PAY',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 1.6,
-                                color: onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Accepted Here:',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: onSurface.withValues(alpha: 0.75),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                for (int i = 0;
-                                    i < widget.acceptedBrandLogos.length;
-                                    i++)
-                                  Expanded(
+                                const SizedBox(height: 10),
+                                Text(
+                                  widget.merchantName,
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.headlineSmall
+                                      ?.copyWith(
+                                    fontFamily: 'serif',
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.0,
+                                    color: onSurface,
+                                    height: 1.1,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  widget.tagline,
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.8,
+                                    color: onSurface.withValues(alpha: 0.75),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                SizedBox.square(
+                                  dimension: qrBoxSize,
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      border: Border.all(
+                                        color: const Color(0xFF303030),
+                                        width: 2,
+                                      ),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
                                     child: Padding(
-                                      padding: EdgeInsets.only(
-                                        right: i ==
-                                                widget.acceptedBrandLogos
-                                                        .length -
-                                                    1
-                                            ? 0
-                                            : 10,
-                                      ),
-                                      child: _BrandLogo(
-                                        label:
-                                            widget.acceptedBrandLogos[i].name,
-                                        imageUrl: widget
-                                            .acceptedBrandLogos[i].imageUrl,
+                                      padding: EdgeInsets.all(qrPadding),
+                                      child: Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          QrImageView(
+                                            data: widget.qrData,
+                                            size: qrSize,
+                                            backgroundColor: Colors.white,
+                                            errorCorrectionLevel:
+                                                QrErrorCorrectLevel.H,
+                                            eyeStyle: const QrEyeStyle(
+                                              eyeShape: QrEyeShape.circle,
+                                              color: Color(0xFF1E1E1E),
+                                            ),
+                                            dataModuleStyle:
+                                                const QrDataModuleStyle(
+                                              dataModuleShape:
+                                                  QrDataModuleShape.circle,
+                                              color: Color(0xFF1E1E1E),
+                                            ),
+                                            padding: EdgeInsets.zero,
+                                          ),
+                                          DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            child: Padding(
+                                              padding: const EdgeInsets.all(5),
+                                              child: Image.asset(
+                                                kShopLogoAsset,
+                                                width: 50,
+                                                height: 50,
+                                                fit: BoxFit.contain,
+                                                filterQuality:
+                                                    FilterQuality.high,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              widget.merchantName,
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontFamily: 'serif',
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.8,
-                                color: onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'UPI ID: ${widget.upiId}',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.3,
-                                color: onSurface.withValues(alpha: 0.8),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              widget.amount == null
-                                  ? 'Amount: Enter in app'
-                                  : 'Amount: \u20B9${_formatRupees(widget.amount!)}',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: onSurface.withValues(alpha: 0.9),
-                              ),
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'SCAN & PAY',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1.6,
+                                    color: onSurface,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Accepted Here:',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: onSurface.withValues(alpha: 0.75),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    for (int i = 0;
+                                        i <
+                                            widget.acceptedBrandLogos.length;
+                                        i++)
+                                      Expanded(
+                                        child: Padding(
+                                          padding: EdgeInsets.only(
+                                            right: i ==
+                                                    widget.acceptedBrandLogos
+                                                            .length -
+                                                        1
+                                                ? 0
+                                                : 10,
+                                          ),
+                                          child: _BrandLogo(
+                                            label: widget
+                                                .acceptedBrandLogos[i].name,
+                                            imageUrl: widget
+                                                .acceptedBrandLogos[i].imageUrl,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  widget.merchantName,
+                                  textAlign: TextAlign.center,
+                                  style:
+                                      theme.textTheme.titleMedium?.copyWith(
+                                    fontFamily: 'serif',
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.8,
+                                    color: onSurface,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'UPI ID: ${widget.upiId}',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.3,
+                                    color: onSurface.withValues(alpha: 0.8),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  widget.amount == null
+                                      ? 'Amount: Enter in app'
+                                      : 'Amount: \u20B9${_formatRupees(widget.amount!)}',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: onSurface.withValues(alpha: 0.9),
+                                  ),
                             ),
                           ],
                         ),
