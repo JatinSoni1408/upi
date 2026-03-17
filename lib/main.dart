@@ -293,7 +293,7 @@ class _UpiHomePageState extends State<UpiHomePage> {
     }
     final shouldExit = await _confirmExit();
     if (shouldExit && mounted) {
-      Navigator.of(context).pop();
+      SystemNavigator.pop();
     }
   }
 
@@ -538,33 +538,29 @@ class _ScanPayStandeeCardState extends State<_ScanPayStandeeCard> {
                               height: 64,
                               child: Row(
                                 children: [
-                                  GestureDetector(
-                                    onLongPress: widget.onSettings,
-                                    child: const Padding(
-                                      padding: EdgeInsets.all(8),
-                                      child: Icon(
-                                        Icons.settings,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
+                                  const SizedBox(width: 48),
                                       Expanded(
                                         child: Center(
-                                          child: ColorFiltered(
-                                            colorFilter: const ColorFilter.mode(
-                                              Colors.black,
-                                              BlendMode.srcIn,
-                                            ),
-                                            child: Image.asset(
-                                              widget.shopLogoAsset,
-                                              fit: BoxFit.contain,
-                                              filterQuality:
-                                                  FilterQuality.high,
-                                              cacheHeight: 128,
-                                              errorBuilder:
-                                                  (context, error, stackTrace) {
-                                                return const SizedBox.shrink();
-                                              },
+                                          child: GestureDetector(
+                                            onTap: widget.onSettings,
+                                            child: ColorFiltered(
+                                              colorFilter:
+                                                  const ColorFilter.mode(
+                                                Colors.black,
+                                                BlendMode.srcIn,
+                                              ),
+                                              child: Image.asset(
+                                                widget.shopLogoAsset,
+                                                fit: BoxFit.contain,
+                                                filterQuality:
+                                                    FilterQuality.high,
+                                                cacheHeight: 128,
+                                                errorBuilder: (context, error,
+                                                    stackTrace) {
+                                                  return const SizedBox
+                                                      .shrink();
+                                                },
+                                              ),
                                             ),
                                           ),
                                         ),
